@@ -32,7 +32,7 @@ import org.jitsi.jibri.util.extensions.error
 import org.jitsi.jibri.util.whenever
 
 private const val YOUTUBE_URL = "rtmp://a.rtmp.youtube.com/live2"
-private const val STREAMING_MAX_BITRATE = 5000
+private const val STREAMING_MAX_BITRATE = 3000
 
 /**
  * Parameters needed for starting a [StreamingJibriService]
