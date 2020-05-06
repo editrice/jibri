@@ -98,7 +98,7 @@ class ProcessWrapper(
         // because we want them to read everything available from the
         // process' inputstream. Once it's done, they'll read
         // the EOF and close things up correctly
-        runtime.exec("kill -s SIGINT ${process.pid}")
+        runtime.exec("kill -s SIGINT ${process.pid()}")
     }
 
     /**
