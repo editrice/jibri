@@ -17,10 +17,10 @@
 package org.jitsi.jibri.selenium
 
 import org.jitsi.jibri.CallUrlInfo
+import org.jitsi.jibri.config.Config
 import org.jitsi.jibri.config.XmppCredentials
 import org.jitsi.jibri.selenium.pageobjects.CallPage
 import org.jitsi.jibri.selenium.pageobjects.HomePage
-import org.jitsi.jibri.selenium.status_checks.CallStatusCheck
 import org.jitsi.jibri.selenium.status_checks.EmptyCallStatusCheck
 import org.jitsi.jibri.selenium.status_checks.MediaReceivedStatusCheck
 import org.jitsi.jibri.selenium.util.BrowserFileHandler
@@ -30,6 +30,8 @@ import org.jitsi.jibri.util.TaskPools
 import org.jitsi.jibri.util.extensions.error
 import org.jitsi.jibri.util.extensions.scheduleAtFixedRate
 import org.jitsi.jibri.util.getLoggerWithHandler
+import org.jitsi.metaconfig.config
+import org.jitsi.metaconfig.from
 import org.openqa.selenium.TimeoutException
 import org.openqa.selenium.chrome.ChromeDriver
 import org.openqa.selenium.chrome.ChromeDriverService
@@ -80,7 +82,7 @@ data class JibriSeleniumOptions(
     /**
      * How long we should stay in a call with no other participants before quitting
      */
-    val emptyCallTimeout: Duration = EmptyCallStatusCheck.DEFAULT_CALL_EMPTY_TIMEOUT
+    val emptyCallTimeout: Duration = EmptyCallStatusCheck.defaultCallEmptyTimeout
 )
 
 val SIP_GW_URL_OPTIONS = listOf(
@@ -121,18 +123,13 @@ class JibriSelenium(
     private var currCallUrl: String? = null
     private val stateMachine = SeleniumStateMachine()
     private var shuttingDown = AtomicBoolean(false)
+    private val chromeOpts: List<String> by config("jibri.chrome.flags".from(Config.configSource))
 
     /**
      * A task which executes at an interval and checks various aspects of the call to make sure things are
      * working correctly
      */
     private var recurringCallStatusCheckTask: ScheduledFuture<*>? = null
-    private val callStatusChecks: List<CallStatusCheck>
-
-    companion object {
-        private val browserOutputLogger = getLoggerWithHandler("browser", BrowserFileHandler())
-        const val COMPONENT_ID = "Selenium"
-    }
 
     /**
      * Set up default chrome driver options (using fake device, etc.)
@@ -140,14 +137,7 @@ class JibriSelenium(
     init {
         System.setProperty("webdriver.chrome.logfile", "/tmp/chromedriver.log")
         val chromeOptions = ChromeOptions()
-        chromeOptions.addArguments(
-                "--use-fake-ui-for-media-stream",
-                "--start-maximized",
-                "--kiosk",
-                "--enabled",
-                "--disable-infobars",
-                "--autoplay-policy=no-user-gesture-required"
-        )
+        chromeOptions.addArguments(chromeOpts)
         chromeOptions.setExperimentalOption("w3c", false)
         chromeOptions.addArguments(jibriSeleniumOptions.extraChromeCommandLineFlags)
         val chromeDriverService = ChromeDriverService.Builder().withEnvironment(
@@ -159,13 +149,6 @@ class JibriSelenium(
         chromeDriver = ChromeDriver(chromeDriverService, chromeOptions)
         chromeDriver.manage().timeouts().pageLoadTimeout(60, TimeUnit.SECONDS)
 
-        // Note that the order here is important: we always want to check for no participants before we check
-        // for media being received, since the call being empty will also mean Jibri is not receiving media but should
-        // not cause Jibri to go unhealthy (like not receiving media when there are others in the call will).
-        callStatusChecks = listOf(
-            EmptyCallStatusCheck(logger, callEmptyTimeout = jibriSeleniumOptions.emptyCallTimeout),
-            MediaReceivedStatusCheck(logger)
-        )
         stateMachine.onStateTransition(this::onSeleniumStateChange)
     }
 
@@ -185,6 +168,13 @@ class JibriSelenium(
     }
 
     private fun startRecurringCallStatusChecks() {
+        // Note that the order here is important: we always want to check for no participants before we check
+        // for media being received, since the call being empty will also mean Jibri is not receiving media but should
+        // not cause Jibri to go unhealthy (like not receiving media when there are others in the call will).
+        val callStatusChecks = listOf(
+            EmptyCallStatusCheck(logger, callEmptyTimeout = jibriSeleniumOptions.emptyCallTimeout),
+            MediaReceivedStatusCheck(logger)
+        )
         // We fire all state transitions in the ioPool, otherwise we may try and cancel the
         // recurringCallStatusCheckTask from within the thread it was executing in.  Another solution would've been
         // to pass 'false' to recurringCallStatusCheckTask.cancel, but it felt cleaner to separate the threads
@@ -252,7 +242,8 @@ class JibriSelenium(
                         "callStatsUserName" to "jibri"
                 )
                 xmppCredentials?.let {
-                    localStorageValues["xmpp_username_override"] = "${xmppCredentials.username}@${xmppCredentials.domain}"
+                    localStorageValues["xmpp_username_override"] =
+                        "${xmppCredentials.username}@${xmppCredentials.domain}"
                     localStorageValues["xmpp_password_override"] = xmppCredentials.password
                 }
                 setLocalStorageValues(localStorageValues)
@@ -304,5 +295,10 @@ class JibriSelenium(
         logger.info("Quitting chrome driver")
         chromeDriver.quit()
         logger.info("Chrome driver quit")
+    }
+
+    companion object {
+        private val browserOutputLogger = getLoggerWithHandler("browser", BrowserFileHandler())
+        const val COMPONENT_ID = "Selenium"
     }
 }

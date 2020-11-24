@@ -31,11 +31,11 @@ fun getFfmpegCommandLinux(ffmpegExecutorParams: FfmpegExecutorParams, sink: Sink
         "-thread_queue_size", ffmpegExecutorParams.queueSize.toString(),
         "-i", "plug:bsnoop",
         "-acodec", "aac", "-strict", "-2", "-ar", "44100", "-b:a", "128k",
-        "-af", "aresample=async=1",
+        "-filter:a", "aresample=async=1",
         "-c:v", "libx264", "-preset", ffmpegExecutorParams.videoEncodePreset,
-        *sink.options, "-pix_fmt", "yuv420p", "-r", ffmpegExecutorParams.framerate.toString(),
-        "-crf", ffmpegExecutorParams.h264ConstantRateFactor.toString(),
-        "-g", "30", "-bf", "2", "-tune", "zerolatency",
+        *sink.options, "-pix_fmt", "yuv420p", "-r", ffmpegExecutorParams.framerate.toString(), 
+        "-b:v", "3000k", "-minrate", "3000k", "-maxrate", "3000k",
+        "-g", "60", "-bf", "2", "-tune", "zerolatency",
         "-f", sink.format, sink.path
     )
 }
@@ -51,8 +51,8 @@ fun getFfmpegCommandMac(ffmpegExecutorParams: FfmpegExecutorParams, sink: Sink):
         "-vsync", "2",
         "-acodec", "aac", "-strict", "-2", "-ar", "44100", "-b:a 128k",
         "-c:v", "libx264", "-preset", ffmpegExecutorParams.videoEncodePreset,
-        *sink.options, "-pix_fmt", "yuv420p", "-crf", ffmpegExecutorParams.h264ConstantRateFactor.toString(),
-        "-g", "30", "-bf", "2", "-tune", "zerolatency",
+        *sink.options, "-pix_fmt", "yuv420p", "-b:v", "3000k",
+        "-g", "60", "-bf", "2", "-tune", "zerolatency",
         "-f", sink.format, sink.path
     )
 }

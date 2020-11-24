@@ -1,7 +1,9 @@
 package org.jitsi.jibri.selenium.status_checks
 
+import org.jitsi.jibri.config.Config
 import org.jitsi.jibri.selenium.SeleniumEvent
 import org.jitsi.jibri.selenium.pageobjects.CallPage
+import org.jitsi.metaconfig.config
 import java.time.Clock
 import java.time.Duration
 import java.util.logging.Logger
@@ -27,24 +29,33 @@ class MediaReceivedStatusCheck(
         val now = clock.instant()
         val bitrates = callPage.getBitrates()
         // getNumParticipants includes Jibri, so subtract 1
-        val allClientsMuted = callPage.numRemoteParticipantsMuted() == (callPage.getNumParticipants() - 1)
-        logger.info("Jibri client receive bitrates: $bitrates, all clients muted? $allClientsMuted")
+        val numParticipants = callPage.getNumParticipants() - 1
+        val numMutedParticipants = callPage.numRemoteParticipantsMuted()
+        val numJigasiParticipants = callPage.numRemoteParticipantsJigasi()
+        // We don't get any mute state for Jigasi participants, so to prevent timing out when only Jigasi participants
+        // may be speaking, always count them as "muted"
+        val allClientsMuted = (numMutedParticipants + numJigasiParticipants) == numParticipants
+        logger.info("Jibri client receive bitrates: $bitrates, num participants: $numParticipants, " +
+            "numMutedParticipants: $numMutedParticipants, numJigasis: $numJigasiParticipants, " +
+            "all clients muted? $allClientsMuted")
         clientsAllMutedTransitionTime.maybeUpdate(allClientsMuted)
         val downloadBitrate = bitrates.getOrDefault("download", 0L) as Long
-        if (downloadBitrate != 0L) {
+        // If all clients are muted, register it as 'receiving media': that way when clients unmute
+        // we'll get the full noMediaTimeout duration before timing out due to lack of media.
+        if (downloadBitrate != 0L || allClientsMuted) {
             timeOfLastMedia = now
         }
         val timeSinceLastMedia = Duration.between(timeOfLastMedia, now)
 
         // There are a couple possible outcomes here:
-        // 1) All clients are muted, but have been muted for longer than ALL_MUTED_TIMEOUT so
+        // 1) All clients are muted, but have been muted for longer than allMutedTimeout so
         //     we'll exit the call gracefully (CallEmpty)
-        // 2) No media has flowed for longer than NO_MEDIA_TIMEOUT and all clients are not
+        // 2) No media has flowed for longer than noMediaTimeout and all clients are not
         //     muted so we'll exit with an error (NoMediaReceived)
         // 3) If neither of the above are true, we're fine and no event has occurred
         return when {
-            clientsAllMutedTransitionTime.exceededTimeout(ALL_MUTED_TIMEOUT) -> SeleniumEvent.CallEmpty
-            timeSinceLastMedia > NO_MEDIA_TIMEOUT && !allClientsMuted -> SeleniumEvent.NoMediaReceived
+            clientsAllMutedTransitionTime.exceededTimeout(allMutedTimeout) -> SeleniumEvent.CallEmpty
+            timeSinceLastMedia > noMediaTimeout && !allClientsMuted -> SeleniumEvent.NoMediaReceived
             else -> null
         }
     }
@@ -54,11 +65,14 @@ class MediaReceivedStatusCheck(
          * How long we'll stay in the call if we're not receiving any incoming media (assuming all participants
          * are not muted)
          */
-        private val NO_MEDIA_TIMEOUT: Duration = Duration.ofSeconds(30)
-
+        val noMediaTimeout: Duration by config {
+            "jibri.call-status-checks.no-media-timeout".from(Config.configSource)
+        }
         /**
          * How long we'll stay in the call if all participants are muted
          */
-        private val ALL_MUTED_TIMEOUT: Duration = Duration.ofMinutes(10)
+        val allMutedTimeout: Duration by config {
+            "jibri.call-status-checks.all-muted-timeout".from(Config.configSource)
+        }
     }
 }
